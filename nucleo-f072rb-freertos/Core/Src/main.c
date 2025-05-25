@@ -18,7 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-//#include "cmsis_os.h"
+#include "cmsis_os.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -41,17 +41,49 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-
-/* USER CODE BEGIN PV */
 UART_HandleTypeDef huart2;
+
+/* Definitions for defaultTask */
+osThreadId_t defaultTaskHandle;
+const osThreadAttr_t defaultTask_attributes = {
+  .name = "defaultTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for BlinkTask */
+osThreadId_t BlinkTaskHandle;
+const osThreadAttr_t BlinkTask_attributes = {
+  .name = "BlinkTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for BlinkTask2 */
+osThreadId_t BlinkTask2Handle;
+const osThreadAttr_t BlinkTask2_attributes = {
+  .name = "BlinkTask2",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityBelowNormal,
+};
+/* USER CODE BEGIN PV */
+
+UART_HandleTypeDef huart2;
+const char msg[] = "Barkadeer brig Arr booty rum.";
+// Handles for controlling states from other tasks
+//static TaskHandle_t task_1 = NULL;
+//static TaskHandle_t task_2 = NULL;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
-
-/* USER CODE BEGIN PFP */
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
+void StartDefaultTask(void *argument);
+void StartBlinkTask(void *argument);
+void StartBlinkTask2(void *argument);
+
+/* USER CODE BEGIN PFP */
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -93,6 +125,9 @@ int main(void)
 
   /* USER CODE END 2 */
 
+  /* Init scheduler */
+  osKernelInitialize();
+
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
   /* USER CODE END RTOS_MUTEX */
@@ -109,8 +144,23 @@ int main(void)
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
 
-  /* Switch to Free rtos*/
-  MX_FREERTOS_Init();
+  /* Create the thread(s) */
+  /* creation of defaultTask */
+  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+
+  /* creation of BlinkTask */
+  BlinkTaskHandle = osThreadNew(StartBlinkTask, NULL, &BlinkTask_attributes);
+
+  /* creation of BlinkTask2 */
+  BlinkTask2Handle = osThreadNew(StartBlinkTask2, NULL, &BlinkTask2_attributes);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+  /* add threads, ... */
+  /* USER CODE END RTOS_THREADS */
+
+  /* USER CODE BEGIN RTOS_EVENTS */
+  /* add events, ... */
+  /* USER CODE END RTOS_EVENTS */
 
   /* Start scheduler */
   osKernelStart();
@@ -253,14 +303,14 @@ static void MX_GPIO_Init(void)
   * @retval None
   */
 /* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void const * argument)
+void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
-  /* Infinite loop */
   for(;;)
   {
 	osDelay(1);
   }
+
   /* USER CODE END 5 */
 }
 
@@ -271,7 +321,7 @@ void StartDefaultTask(void const * argument)
 * @retval None
 */
 /* USER CODE END Header_StartBlinkTask */
-void StartBlinkTask(void const * argument)
+void StartBlinkTask(void *argument)
 {
   /* USER CODE BEGIN StartBlinkTask */
   /* Infinite loop */
@@ -280,6 +330,9 @@ void StartBlinkTask(void const * argument)
 	  HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
 	  osDelay(500);
   }
+
+  // In case we accidentally exit from task loop
+  osThreadTerminate(NULL);
   /* USER CODE END StartBlinkTask */
 }
 
@@ -290,15 +343,18 @@ void StartBlinkTask(void const * argument)
 * @retval None
 */
 /* USER CODE END Header_StartBlinkTask2 */
-void StartBlinkTask2(void const * argument)
+void StartBlinkTask2(void *argument)
 {
   /* USER CODE BEGIN StartBlinkTask2 */
   /* Infinite loop */
   for(;;)
   {
 	HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-    osDelay(300);
+    osDelay(600);
   }
+
+  // In case we accidentally exit from task loop
+  osThreadTerminate(NULL);
   /* USER CODE END StartBlinkTask2 */
 }
 
