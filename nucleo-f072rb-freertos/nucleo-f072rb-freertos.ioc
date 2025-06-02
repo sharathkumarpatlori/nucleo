@@ -2,9 +2,9 @@
 CAD.formats=
 CAD.pinconfig=
 CAD.provider=
-FREERTOS.FootprintOK=true
+FREERTOS.FootprintOK=false
 FREERTOS.IPParameters=Tasks01,configUSE_NEWLIB_REENTRANT,FootprintOK
-FREERTOS.Tasks01=defaultTask,24,128,StartDefaultTask,Default,NULL,Dynamic,NULL,NULL;BlinkTask,24,128,StartBlinkTask,Default,NULL,Dynamic,NULL,NULL;BlinkTask2,16,128,StartBlinkTask2,Default,NULL,Dynamic,NULL,NULL
+FREERTOS.Tasks01=defaultTask,32,128,StartDefaultTask,Default,NULL,Dynamic,NULL,NULL;blinkTask,16,128,StartBlinkTask,Default,NULL,Dynamic,NULL,NULL;blinkTask2,8,128,StartBlinkTask2,Default,NULL,Dynamic,NULL,NULL;resumeTask,8,128,StartResumeTask,Default,NULL,Dynamic,NULL,NULL;pauseTask,24,128,StartPauseTask,Default,NULL,Dynamic,NULL,NULL
 FREERTOS.configUSE_NEWLIB_REENTRANT=1
 File.Version=6
 GPIO.groupedBy=Group By Peripherals
@@ -161,4 +161,5 @@ VP_SYS_VS_tim6.Mode=TIM6
 VP_SYS_VS_tim6.Signal=SYS_VS_tim6
 board=NUCLEO-F072RB
 boardIOC=true
+rtos.0.ip=FREERTOS
 isbadioc=false

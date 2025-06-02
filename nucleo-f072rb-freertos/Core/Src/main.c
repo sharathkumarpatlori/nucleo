@@ -22,7 +22,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include<stdio.h>
 #include <string.h>
+#include <stdbool.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -42,31 +44,47 @@
 
 /* Private variables ---------------------------------------------------------*/
 UART_HandleTypeDef huart2;
-uint8_t buf[12];
+
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
   .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
+  .priority = (osPriority_t) osPriorityAboveNormal,
 };
-/* Definitions for BlinkTask */
-osThreadId_t BlinkTaskHandle;
-const osThreadAttr_t BlinkTask_attributes = {
-  .name = "BlinkTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
-};
-/* Definitions for BlinkTask2 */
-osThreadId_t BlinkTask2Handle;
-const osThreadAttr_t BlinkTask2_attributes = {
-  .name = "BlinkTask2",
+/* Definitions for blinkTask */
+osThreadId_t blinkTaskHandle;
+const osThreadAttr_t blinkTask_attributes = {
+  .name = "blinkTask",
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityBelowNormal,
 };
+/* Definitions for blinkTask2 */
+osThreadId_t blinkTask2Handle;
+const osThreadAttr_t blinkTask2_attributes = {
+  .name = "blinkTask2",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
+/* Definitions for resumeTask */
+osThreadId_t resumeTaskHandle;
+const osThreadAttr_t resumeTask_attributes = {
+  .name = "resumeTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
+/* Definitions for pauseTask */
+osThreadId_t pauseTaskHandle;
+const osThreadAttr_t pauseTask_attributes = {
+  .name = "pauseTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 /* USER CODE BEGIN PV */
+uint8_t buf[32];
+volatile bool uart_paused = false;
 
-const char msg[] = "Barkadeer brig Arr booty rum.";
+const char msg[] = "Barkadeer brig Arr booty rum."; // msg for STM32 Part 2 code example
 // Handles for controlling states from other tasks
 //static TaskHandle_t task_1 = NULL;
 //static TaskHandle_t task_2 = NULL;
@@ -80,14 +98,18 @@ static void MX_USART2_UART_Init(void);
 void StartDefaultTask(void *argument);
 void StartBlinkTask(void *argument);
 void StartBlinkTask2(void *argument);
+void StartResumeTask(void *argument);
+void StartPauseTask(void *argument);
 
 /* USER CODE BEGIN PFP */
-
+void PauseUART(void);
+void ResumeUART(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+void PauseUART(void)  { uart_paused = true;  }
+void ResumeUART(void) { uart_paused = false; }
 /* USER CODE END 0 */
 
 /**
@@ -147,11 +169,17 @@ int main(void)
   /* creation of defaultTask */
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
-  /* creation of BlinkTask */
-  BlinkTaskHandle = osThreadNew(StartBlinkTask, NULL, &BlinkTask_attributes);
+  /* creation of blinkTask */
+  blinkTaskHandle = osThreadNew(StartBlinkTask, NULL, &blinkTask_attributes);
 
-  /* creation of BlinkTask2 */
-  BlinkTask2Handle = osThreadNew(StartBlinkTask2, NULL, &BlinkTask2_attributes);
+  /* creation of blinkTask2 */
+  blinkTask2Handle = osThreadNew(StartBlinkTask2, NULL, &blinkTask2_attributes);
+
+  /* creation of resumeTask */
+  resumeTaskHandle = osThreadNew(StartResumeTask, NULL, &resumeTask_attributes);
+
+  /* creation of pauseTask */
+  pauseTaskHandle = osThreadNew(StartPauseTask, NULL, &pauseTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -361,6 +389,47 @@ void StartBlinkTask2(void *argument)
   // In case we accidentally exit from task loop
   osThreadTerminate(NULL);
   /* USER CODE END StartBlinkTask2 */
+}
+
+/* USER CODE BEGIN Header_StartResumeTask */
+/**
+* @brief Function implementing the resumeTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartResumeTask */
+void StartResumeTask(void *argument)
+{
+  /* USER CODE BEGIN StartResumeTask */
+  /* Infinite loop */
+  for(;;)
+  {
+	  ResumeUART();
+	  HAL_UART_Transmit(&huart2, (uint8_t *)"UART Resumed\r\n", 14, HAL_MAX_DELAY);
+	  osDelay(8000);  // Resume every 8 seconds
+  }
+  /* USER CODE END StartResumeTask */
+}
+
+/* USER CODE BEGIN Header_StartPauseTask */
+/**
+* @brief Function implementing the pauseTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartPauseTask */
+void StartPauseTask(void *argument)
+{
+  /* USER CODE BEGIN StartPauseTask */
+  printf("Pause Task running\n");
+  /* Infinite loop */
+  for(;;)
+  {
+	  PauseUART();
+	  HAL_UART_Transmit(&huart2, (uint8_t *)"UART Paused\r\n", 13, HAL_MAX_DELAY);
+	  osDelay(5000);  // Pause every 5 seconds
+  }
+  /* USER CODE END StartPauseTask */
 }
 
 /**
