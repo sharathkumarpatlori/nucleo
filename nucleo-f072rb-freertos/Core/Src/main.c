@@ -22,7 +22,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -42,7 +42,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 UART_HandleTypeDef huart2;
-
+uint8_t buf[12];
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
@@ -66,7 +66,6 @@ const osThreadAttr_t BlinkTask2_attributes = {
 };
 /* USER CODE BEGIN PV */
 
-UART_HandleTypeDef huart2;
 const char msg[] = "Barkadeer brig Arr booty rum.";
 // Handles for controlling states from other tasks
 //static TaskHandle_t task_1 = NULL;
@@ -306,9 +305,15 @@ static void MX_GPIO_Init(void)
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
+  strcpy((char*) buf, "Program Started!\r\n"); // strcpy needs pointer to a char[]
+  HAL_UART_Transmit(&huart2, buf, strlen((char*) buf), HAL_MAX_DELAY); // HAL_MAX_DELAY is 50 days - Don't stop transmitting
+  osDelay(100);
+
   for(;;)
   {
-	osDelay(1);
+	strcpy((char*) buf, "Hello!\r\n"); // strcpy needs pointer to a char[]
+	HAL_UART_Transmit(&huart2, buf, strlen((char*) buf), HAL_MAX_DELAY); // HAL_MAX_DELAY is 50 days - Don't stop transmitting
+	osDelay(500);
   }
 
   /* USER CODE END 5 */
