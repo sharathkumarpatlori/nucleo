@@ -26,6 +26,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include "FreeRTOS.h"
+#include "semphr.h"
 #include "task.h"
 /* USER CODE END Includes */
 
@@ -46,11 +47,12 @@
 
 /* Private variables ---------------------------------------------------------*/
 UART_HandleTypeDef huart2;
+SemaphoreHandle_t pauseResumeSemaphore;
 
-/* Definitions for defaultTask */
-osThreadId_t defaultTaskHandle;
-const osThreadAttr_t defaultTask_attributes = {
-  .name = "defaultTask",
+/* Definitions for uartTask */
+osThreadId_t uartTaskHandle;
+const osThreadAttr_t uartTask_attributes = {
+  .name = "uartTask",
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityAboveNormal,
 };
@@ -68,18 +70,17 @@ const osThreadAttr_t blinkTask2_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
-/* Definitions for playPauseTask */
-osThreadId_t playPauseTaskHandle;
-const osThreadAttr_t playPauseTask_attributes = {
-  .name = "playPauseTask",
+/* Definitions for toggleTask */
+osThreadId_t toggleTaskHandle;
+const osThreadAttr_t toggleTask_attributes = {
+  .name = "toggleTask",
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* USER CODE BEGIN PV */
 uint8_t buf[32];
 volatile bool uart_paused = false;
-//eTaskState defaultState = eTaskStateGet(defaultTaskHandle);
-const char msg[] = "Barkadeer brig Arr booty rum."; // msg for STM32 Part 2 code example
+// const char msg[] = "Barkadeer brig Arr booty rum."; // msg for STM32 Part 2 code example
 
 /* USER CODE END PV */
 
@@ -87,10 +88,10 @@ const char msg[] = "Barkadeer brig Arr booty rum."; // msg for STM32 Part 2 code
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
-void StartDefaultTask(void *argument);
+void StartUARTTask(void *argument);
 void StartBlinkTask(void *argument);
 void StartBlinkTask2(void *argument);
-void StartPauseResumeTask(void *argument);
+void StartToggleTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 void PauseUART(void);
@@ -145,7 +146,8 @@ int main(void)
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
-  /* add semaphores, ... */
+  pauseResumeSemaphore = xSemaphoreCreateBinary();
+  xSemaphoreGive(pauseResumeSemaphore);  // Start in "resumed" state
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* USER CODE BEGIN RTOS_TIMERS */
@@ -157,8 +159,8 @@ int main(void)
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-  /* creation of defaultTask */
-  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+  /* creation of uartTask */
+  uartTaskHandle = osThreadNew(StartUARTTask, NULL, &uartTask_attributes);
 
   /* creation of blinkTask */
   blinkTaskHandle = osThreadNew(StartBlinkTask, NULL, &blinkTask_attributes);
@@ -166,8 +168,8 @@ int main(void)
   /* creation of blinkTask2 */
   blinkTask2Handle = osThreadNew(StartBlinkTask2, NULL, &blinkTask2_attributes);
 
-  /* creation of playPauseTask */
-  playPauseTaskHandle = osThreadNew(StartPauseResumeTask, NULL, &playPauseTask_attributes);
+  /* creation of toggleTask */
+  toggleTaskHandle = osThreadNew(StartToggleTask, NULL, &toggleTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -311,14 +313,14 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE END 4 */
 
-/* USER CODE BEGIN Header_StartDefaultTask */
+/* USER CODE BEGIN Header_StartUARTTask */
 /**
-  * @brief  Function implementing the defaultTask thread.
+  * @brief  Function implementing the uartTask thread.
   * @param  argument: Not used
   * @retval None
   */
-/* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void *argument)
+/* USER CODE END Header_StartUARTTask */
+void StartUARTTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
   strcpy((char*) buf, "Program Started!\r\n"); // strcpy needs pointer to a char[]
@@ -326,11 +328,15 @@ void StartDefaultTask(void *argument)
 
   for(;;)
   {
-    if(!uart_paused) { // When false transmit hello!
-    	strcpy((char*) buf, "Hello!\r\n"); // strcpy needs pointer to a char[]
-    	HAL_UART_Transmit(&huart2, buf, strlen((char*) buf), HAL_MAX_DELAY); // HAL_MAX_DELAY is 50 days - Don't stop transmitting
-    }
-    osDelay(500);
+	  // Wait until resume is signaled
+	  if (xSemaphoreTake(pauseResumeSemaphore, portMAX_DELAY) == pdTRUE)
+	  {
+		  while (uxSemaphoreGetCount(pauseResumeSemaphore))  // UART is running
+	      {
+			  HAL_UART_Transmit(&huart2, (uint8_t *)"Hello!\r\n", 8, HAL_MAX_DELAY);
+	          osDelay(500);
+	      }
+	  }
   }
 
   /* USER CODE END 5 */
@@ -380,34 +386,38 @@ void StartBlinkTask2(void *argument)
   /* USER CODE END StartBlinkTask2 */
 }
 
-/* USER CODE BEGIN Header_StartPauseResumeTask */
+/* USER CODE BEGIN Header_StartToggleTask */
 /**
-* @brief Function implementing the playPauseTask thread.
+* @brief Function implementing the toggleTask thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_StartPauseResumeTask */
-void StartPauseResumeTask(void *argument)
+/* USER CODE END Header_StartToggleTask */
+void StartToggleTask(void *argument)
 {
-  /* USER CODE BEGIN StartPauseResumeTask */
-
+  /* USER CODE BEGIN StartToggleTask */
   bool paused = false;
   /* Infinite loop */
   for(;;)
   {
-	  if (!paused) {
-		  PauseUART();
+	  if (!paused)
+	  {
+		  // Pause UART task
+	      xSemaphoreTake(pauseResumeSemaphore, 0);  // Take to pause
 	      HAL_UART_Transmit(&huart2, (uint8_t *)"UART Paused\r\n", 13, HAL_MAX_DELAY);
 	      paused = true;
-	      osDelay(3000);  // simulate paused time
-	  } else {
-		  ResumeUART();
+	  }
+	  else
+	  {
+		  // Resume UART task
+	      xSemaphoreGive(pauseResumeSemaphore);
 	      HAL_UART_Transmit(&huart2, (uint8_t *)"UART Resumed\r\n", 14, HAL_MAX_DELAY);
 	      paused = false;
-	      osDelay(5000);  // simulate resumed time
 	  }
+
+      osDelay(5000);  // Toggle every 5 seconds
   }
-  /* USER CODE END StartPauseResumeTask */
+  /* USER CODE END StartToggleTask */
 }
 
 /**
