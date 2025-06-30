@@ -26,7 +26,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include "FreeRTOS.h"
-#include "semphr.h"
+#include <stdlib.h>
 #include "task.h"
 /* USER CODE END Includes */
 
@@ -47,41 +47,29 @@
 
 /* Private variables ---------------------------------------------------------*/
 UART_HandleTypeDef huart2;
-SemaphoreHandle_t pauseResumeSemaphore;
 
 /* Definitions for uartTask */
 osThreadId_t uartTaskHandle;
 const osThreadAttr_t uartTask_attributes = {
   .name = "uartTask",
   .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityAboveNormal,
+  .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for blinkTask */
 osThreadId_t blinkTaskHandle;
 const osThreadAttr_t blinkTask_attributes = {
   .name = "blinkTask",
   .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityBelowNormal,
-};
-/* Definitions for blinkTask2 */
-osThreadId_t blinkTask2Handle;
-const osThreadAttr_t blinkTask2_attributes = {
-  .name = "blinkTask2",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityLow,
-};
-/* Definitions for toggleTask */
-osThreadId_t toggleTaskHandle;
-const osThreadAttr_t toggleTask_attributes = {
-  .name = "toggleTask",
-  .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* USER CODE BEGIN PV */
-uint8_t buf[32];
-volatile bool uart_paused = false;
-// const char msg[] = "Barkadeer brig Arr booty rum."; // msg for STM32 Part 2 code example
-
+// Globals
+uint8_t tx_buf[64];  // Used for UART transmit messages
+uint8_t rx_byte;
+char rx_line[32];
+volatile uint8_t idx = 0;
+volatile bool delay_ready = false;
+volatile uint32_t led_delay = 1000;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -90,18 +78,14 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 void StartUARTTask(void *argument);
 void StartBlinkTask(void *argument);
-void StartBlinkTask2(void *argument);
-void StartToggleTask(void *argument);
 
 /* USER CODE BEGIN PFP */
-void PauseUART(void);
-void ResumeUART(void);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void PauseUART(void)  { uart_paused = true;  }
-void ResumeUART(void) { uart_paused = false; }
+
 /* USER CODE END 0 */
 
 /**
@@ -146,8 +130,7 @@ int main(void)
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
-  pauseResumeSemaphore = xSemaphoreCreateBinary();
-  xSemaphoreGive(pauseResumeSemaphore);  // Start in "resumed" state
+
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* USER CODE BEGIN RTOS_TIMERS */
@@ -164,12 +147,6 @@ int main(void)
 
   /* creation of blinkTask */
   blinkTaskHandle = osThreadNew(StartBlinkTask, NULL, &blinkTask_attributes);
-
-  /* creation of blinkTask2 */
-  blinkTask2Handle = osThreadNew(StartBlinkTask2, NULL, &blinkTask2_attributes);
-
-  /* creation of toggleTask */
-  toggleTaskHandle = osThreadNew(StartToggleTask, NULL, &toggleTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -310,7 +287,22 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+    if (huart->Instance == USART2) {
+        if (rx_byte == '\n') {
+            rx_line[idx] = '\0';  // Terminate string
+            delay_ready = true;
+            idx = 0;
+        } else {
+            if (idx < sizeof(rx_line) - 1) {
+                rx_line[idx++] = rx_byte;
+            }
+        }
 
+        // Re-enable interrupt
+        HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
+    }
+}
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartUARTTask */
@@ -323,22 +315,20 @@ static void MX_GPIO_Init(void)
 void StartUARTTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
-  strcpy((char*) buf, "Program Started!\r\n"); // strcpy needs pointer to a char[]
-  HAL_UART_Transmit(&huart2, buf, strlen((char*) buf), HAL_MAX_DELAY); // HAL_MAX_DELAY is 50 days - Don't stop transmitting
+	strcpy((char*) tx_buf, "Enter LED delay in ms:\r\n");
+	    HAL_UART_Transmit(&huart2, tx_buf, strlen((char*) tx_buf), HAL_MAX_DELAY);
 
-  for(;;)
-  {
-	  // Wait until resume is signaled
-	  if (xSemaphoreTake(pauseResumeSemaphore, portMAX_DELAY) == pdTRUE)
-	  {
-		  while (uxSemaphoreGetCount(pauseResumeSemaphore))  // UART is running
-	      {
-			  HAL_UART_Transmit(&huart2, (uint8_t *)"Hello!\r\n", 8, HAL_MAX_DELAY);
-	          osDelay(500);
-	      }
-	  }
-  }
+	    HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
 
+	    for (;;) {
+	        if (delay_ready) {
+	            delay_ready = false;
+	            led_delay = atoi(rx_line);
+	            sprintf((char*)tx_buf, "Updated LED delay to: %lu ms\r\n", led_delay);
+	            HAL_UART_Transmit(&huart2, tx_buf, strlen((char*)tx_buf), HAL_MAX_DELAY);
+	        }
+	        osDelay(10);
+	    }
   /* USER CODE END 5 */
 }
 
@@ -353,71 +343,16 @@ void StartBlinkTask(void *argument)
 {
   /* USER CODE BEGIN StartBlinkTask */
   /* Infinite loop */
+
   for(;;)
   {
 	  HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-	  osDelay(500);
+	  osDelay(led_delay);
   }
 
   // In case we accidentally exit from task loop
   osThreadTerminate(NULL);
   /* USER CODE END StartBlinkTask */
-}
-
-/* USER CODE BEGIN Header_StartBlinkTask2 */
-/**
-* @brief Function implementing the BlinkTask2 thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_StartBlinkTask2 */
-void StartBlinkTask2(void *argument)
-{
-  /* USER CODE BEGIN StartBlinkTask2 */
-  /* Infinite loop */
-  for(;;)
-  {
-	HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-    osDelay(600);
-  }
-
-  // In case we accidentally exit from task loop
-  osThreadTerminate(NULL);
-  /* USER CODE END StartBlinkTask2 */
-}
-
-/* USER CODE BEGIN Header_StartToggleTask */
-/**
-* @brief Function implementing the toggleTask thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_StartToggleTask */
-void StartToggleTask(void *argument)
-{
-  /* USER CODE BEGIN StartToggleTask */
-  bool paused = false;
-  /* Infinite loop */
-  for(;;)
-  {
-	  if (!paused)
-	  {
-		  // Pause UART task
-	      xSemaphoreTake(pauseResumeSemaphore, 0);  // Take to pause
-	      HAL_UART_Transmit(&huart2, (uint8_t *)"UART Paused\r\n", 13, HAL_MAX_DELAY);
-	      paused = true;
-	  }
-	  else
-	  {
-		  // Resume UART task
-	      xSemaphoreGive(pauseResumeSemaphore);
-	      HAL_UART_Transmit(&huart2, (uint8_t *)"UART Resumed\r\n", 14, HAL_MAX_DELAY);
-	      paused = false;
-	  }
-
-      osDelay(5000);  // Toggle every 5 seconds
-  }
-  /* USER CODE END StartToggleTask */
 }
 
 /**
