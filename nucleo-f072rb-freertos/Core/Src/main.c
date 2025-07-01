@@ -60,14 +60,14 @@ osThreadId_t blinkTaskHandle;
 const osThreadAttr_t blinkTask_attributes = {
   .name = "blinkTask",
   .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
+  .priority = (osPriority_t) osPriorityBelowNormal,
 };
+
 /* USER CODE BEGIN PV */
-// Globals
-uint8_t tx_buf[64];  // Used for UART transmit messages
+uint8_t tx_buf[64];
 uint8_t rx_byte;
 char rx_line[32];
-volatile uint8_t idx = 0;
+uint8_t idx = 0;
 volatile bool delay_ready = false;
 volatile uint32_t led_delay = 1000;
 /* USER CODE END PV */
@@ -289,17 +289,17 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
     if (huart->Instance == USART2) {
-        if (rx_byte == '\n') {
-            rx_line[idx] = '\0';  // Terminate string
+        HAL_UART_Transmit(&huart2, (uint8_t*)"RX interrupt\r\n", 14, HAL_MAX_DELAY);
+
+        if (rx_byte == '\n' || rx_byte == '\r') {
+            rx_line[idx] = '\0';
             delay_ready = true;
             idx = 0;
-        } else {
-            if (idx < sizeof(rx_line) - 1) {
-                rx_line[idx++] = rx_byte;
-            }
+        } else if (idx < sizeof(rx_line) - 1) {
+            rx_line[idx++] = rx_byte;
         }
 
-        // Re-enable interrupt
+        // Re-enable interrupt for next byte
         HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
     }
 }
@@ -314,22 +314,30 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 /* USER CODE END Header_StartUARTTask */
 void StartUARTTask(void *argument)
 {
-  /* USER CODE BEGIN 5 */
-	strcpy((char*) tx_buf, "Enter LED delay in ms:\r\n");
-	    HAL_UART_Transmit(&huart2, tx_buf, strlen((char*) tx_buf), HAL_MAX_DELAY);
+  /* USER CODE BEGIN StartUARTTask */
+  strcpy((char*) tx_buf, "Enter LED delay in ms:\r\n");
+  HAL_UART_Transmit(&huart2, tx_buf, strlen((char*) tx_buf), HAL_MAX_DELAY);
 
-	    HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
+  // Start receiving the first byte
+  HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
 
-	    for (;;) {
-	        if (delay_ready) {
-	            delay_ready = false;
-	            led_delay = atoi(rx_line);
-	            sprintf((char*)tx_buf, "Updated LED delay to: %lu ms\r\n", led_delay);
-	            HAL_UART_Transmit(&huart2, tx_buf, strlen((char*)tx_buf), HAL_MAX_DELAY);
-	        }
-	        osDelay(10);
-	    }
-  /* USER CODE END 5 */
+  for (;;) {
+	  if (delay_ready)
+	  {
+	      delay_ready = false;
+
+	      sprintf((char*)tx_buf, "Received: %s\r\n", rx_line);
+	      HAL_UART_Transmit(&huart2, tx_buf, strlen((char*)tx_buf), HAL_MAX_DELAY);
+
+	      led_delay = atoi(rx_line);
+
+	      sprintf((char*)tx_buf, "Updated LED delay to: %lu ms\r\n", led_delay);
+	      HAL_UART_Transmit(&huart2, tx_buf, strlen((char*)tx_buf), HAL_MAX_DELAY);
+	  }
+
+      osDelay(10);  // Small delay to yield CPU
+  }
+  /* USER CODE END StartUARTTask */
 }
 
 /* USER CODE BEGIN Header_StartBlinkTask */
@@ -342,15 +350,23 @@ void StartUARTTask(void *argument)
 void StartBlinkTask(void *argument)
 {
   /* USER CODE BEGIN StartBlinkTask */
-  /* Infinite loop */
+
+  static uint32_t prev_delay = 0;
 
   for(;;)
   {
-	  HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-	  osDelay(led_delay);
+      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+      osDelay(led_delay);
+
+      if (prev_delay != led_delay)
+      {
+    	  sprintf((char*)tx_buf, "Blinking with delay: %lu ms\r\n", led_delay);
+          HAL_UART_Transmit(&huart2, tx_buf, strlen((char*)tx_buf), HAL_MAX_DELAY);
+          prev_delay = led_delay;
+      }
   }
 
-  // In case we accidentally exit from task loop
+  // Just in case task exits
   osThreadTerminate(NULL);
   /* USER CODE END StartBlinkTask */
 }
