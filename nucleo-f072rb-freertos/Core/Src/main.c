@@ -289,9 +289,7 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
     if (huart->Instance == USART2) {
-        HAL_UART_Transmit(&huart2, (uint8_t*)"RX interrupt\r\n", 14, HAL_MAX_DELAY);
-
-        if (rx_byte == '\n' || rx_byte == '\r') {
+        if (rx_byte == '\r' || rx_byte == '\n') {
             rx_line[idx] = '\0';
             delay_ready = true;
             idx = 0;
@@ -299,7 +297,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
             rx_line[idx++] = rx_byte;
         }
 
-        // Re-enable interrupt for next byte
+        // Enable next byte receive
         HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
     }
 }
@@ -314,30 +312,29 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 /* USER CODE END Header_StartUARTTask */
 void StartUARTTask(void *argument)
 {
-  /* USER CODE BEGIN StartUARTTask */
-  strcpy((char*) tx_buf, "Enter LED delay in ms:\r\n");
-  HAL_UART_Transmit(&huart2, tx_buf, strlen((char*) tx_buf), HAL_MAX_DELAY);
+    // Start UART reception
+    HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
 
-  // Start receiving the first byte
-  HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
+    // Show prompt once at start
+    strcpy((char*)tx_buf, "Enter LED delay in ms: ");
+    HAL_UART_Transmit(&huart2, tx_buf, strlen((char*)tx_buf), HAL_MAX_DELAY);
 
-  for (;;) {
-	  if (delay_ready)
-	  {
-	      delay_ready = false;
+    for (;;) {
+        if (delay_ready) {
+            delay_ready = false;
+            led_delay = atoi(rx_line);
 
-	      sprintf((char*)tx_buf, "Received: %s\r\n", rx_line);
-	      HAL_UART_Transmit(&huart2, tx_buf, strlen((char*)tx_buf), HAL_MAX_DELAY);
+            // Show updated delay
+            sprintf((char*)tx_buf, "\r\nBlinking with delay: %lu ms\r\n\r\n", led_delay);
+            HAL_UART_Transmit(&huart2, tx_buf, strlen((char*)tx_buf), HAL_MAX_DELAY);
 
-	      led_delay = atoi(rx_line);
+            // Show prompt again
+            strcpy((char*)tx_buf, "Enter LED delay in ms: ");
+            HAL_UART_Transmit(&huart2, tx_buf, strlen((char*)tx_buf), HAL_MAX_DELAY);
+        }
 
-	      sprintf((char*)tx_buf, "Updated LED delay to: %lu ms\r\n", led_delay);
-	      HAL_UART_Transmit(&huart2, tx_buf, strlen((char*)tx_buf), HAL_MAX_DELAY);
-	  }
-
-      osDelay(10);  // Small delay to yield CPU
-  }
-  /* USER CODE END StartUARTTask */
+        osDelay(10);
+    }
 }
 
 /* USER CODE BEGIN Header_StartBlinkTask */
@@ -350,24 +347,10 @@ void StartUARTTask(void *argument)
 void StartBlinkTask(void *argument)
 {
   /* USER CODE BEGIN StartBlinkTask */
-
-  static uint32_t prev_delay = 0;
-
-  for(;;)
-  {
-      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-      osDelay(led_delay);
-
-      if (prev_delay != led_delay)
-      {
-    	  sprintf((char*)tx_buf, "Blinking with delay: %lu ms\r\n", led_delay);
-          HAL_UART_Transmit(&huart2, tx_buf, strlen((char*)tx_buf), HAL_MAX_DELAY);
-          prev_delay = led_delay;
-      }
-  }
-
-  // Just in case task exits
-  osThreadTerminate(NULL);
+    for (;;) {
+        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+        osDelay(led_delay);
+    }
   /* USER CODE END StartBlinkTask */
 }
 
